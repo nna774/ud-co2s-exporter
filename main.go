@@ -35,6 +35,11 @@ var (
 		Name:      "TEMP",
 		Help:      "temperature",
 	})
+	last = prometheus.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "last",
+		Help:      "last time value get successfully",
+	})
 
 	sensorReg = regexp.MustCompile(`CO2=(\d+),HUM=(\d+\.\d+),TMP=(\d+\.\d+)`)
 )
@@ -69,6 +74,7 @@ type values struct {
 	co2   float64
 	humid float64
 	temp  float64
+	last  float64
 }
 
 type collecter struct {
@@ -109,12 +115,15 @@ func (c *collecter) updateValues() {
 		return
 	}
 	c.v.temp = temp
+
+	c.v.last = float64(time.Now().Unix())
 }
 
 func (c *collecter) Describe(ch chan<- *prometheus.Desc) {
 	ch <- co2.Desc()
 	ch <- humid.Desc()
 	ch <- temp.Desc()
+	ch <- last.Desc()
 }
 
 func (c *collecter) Collect(ch chan<- prometheus.Metric) {
@@ -132,6 +141,11 @@ func (c *collecter) Collect(ch chan<- prometheus.Metric) {
 		temp.Desc(),
 		prometheus.GaugeValue,
 		c.v.temp,
+	)
+	ch <- prometheus.MustNewConstMetric(
+		last.Desc(),
+		prometheus.CounterValue,
+		c.v.last,
 	)
 }
 
