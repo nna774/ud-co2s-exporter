@@ -2,10 +2,10 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -42,7 +42,15 @@ var (
 	})
 
 	sensorReg = regexp.MustCompile(`CO2=(\d+),HUM=(\d+\.\d+),TMP=(\d+\.\d+)`)
+
+	udCO2Path string
+	bind      string
 )
+
+func init() {
+	flag.StringVar(&udCO2Path, "udco2", "/dev/ttyACM0", "UD-CO2S serial path")
+	flag.StringVar(&bind, "bind", ":5000", "bind address")
+}
 
 func newPort(path string) (*serial.Port, error) {
 	c := &serial.Config{
@@ -150,15 +158,12 @@ func (c *collecter) Collect(ch chan<- prometheus.Metric) {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		panic(fmt.Sprintf("%v UD-CO2S-SERIAL-PATH", os.Args[0]))
-	}
-	path := os.Args[1]
-	c, err := newCollector(path)
+	flag.Parse()
+	c, err := newCollector(udCO2Path)
 	if err != nil {
 		panic(err)
 	}
 	prometheus.MustRegister(c)
 	http.Handle("/metrics", promhttp.Handler())
-	log.Fatal(http.ListenAndServe(":5000", nil))
+	log.Fatal(http.ListenAndServe(bind, nil))
 }
