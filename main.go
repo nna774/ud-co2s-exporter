@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -61,15 +62,20 @@ func newPort(path string) (*serial.Port, error) {
 	return serial.OpenPort(c)
 }
 
+func initPort(port *serial.Port) error {
+	_, err := port.Write([]byte("STA\r\n"))
+	return err
+}
+
 func newCollector(path string) (*collecter, error) {
 	port, err := newPort(path)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := port.Write([]byte("STA\r\n")); err != nil {
+	if err := initPort(port); err != nil {
 		return nil, err
 	}
-	c := &collecter{port: port, v: &values{}}
+	c := &collecter{port: port, v: &values{}, failCount: 0, maxFailCount: 5, portPath: path}
 	go func() {
 		for {
 			c.updateValues()
@@ -89,6 +95,10 @@ type collecter struct {
 	port *serial.Port
 	v    *values
 	s    *bufio.Scanner
+
+	portPath     string
+	failCount    int
+	maxFailCount int
 }
 
 func (c *collecter) updateValues() {
@@ -101,6 +111,21 @@ func (c *collecter) updateValues() {
 	res := sensorReg.FindStringSubmatch(t)
 	if len(res) < 4 {
 		fmt.Printf("got wrong response: %+v\n", res)
+		c.failCount++
+		if c.failCount > c.maxFailCount {
+			fmt.Fprintf(os.Stderr, "fail count over %v, reset port\n", c.failCount)
+			c.port.Close()
+			port, err := newPort(c.portPath)
+			if err != nil {
+				log.Fatalf("reset port failed: %v", err)
+			}
+			if err = initPort(port); err != nil {
+				log.Fatalf("init port failed: %v", err)
+			}
+			c.port = port
+			c.s = bufio.NewScanner(c.port)
+			c.failCount = 0
+		}
 		return
 	}
 
@@ -125,6 +150,7 @@ func (c *collecter) updateValues() {
 	c.v.temp = temp
 
 	c.v.last = float64(time.Now().Unix())
+	c.failCount = 0
 }
 
 func (c *collecter) Describe(ch chan<- *prometheus.Desc) {
